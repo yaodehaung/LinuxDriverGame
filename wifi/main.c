@@ -1,48 +1,66 @@
 #include <linux/module.h>
-#include <linux/init.h>
-#include "mylib.h"
+#include <linux/netdevice.h>
 
-MODULE_LICENSE("GPL");
+static struct net_device *dummy_dev;
 
-static int __init main_init(void) {
-    int result = add(10, 20);
-    pr_info("main: 10 + 20 = %d\n", result);
-
-    const struct ieee80211_ops piao_piao_ops = {
-        .add_chanctx = ieee80211_emulate_add_chanctx,
-        .remove_chanctx = ieee80211_emulate_remove_chanctx,
-        .change_chanctx = ieee80211_emulate_change_chanctx,
-        .switch_vif_chanctx = ieee80211_emulate_switch_vif_chanctx,
-        // .tx = mt76x02_tx,
-        // .start = mt76x2u_start,
-        // .stop = mt76x2u_stop,
-        // .add_interface = mt76x02_add_interface,
-        // .remove_interface = mt76x02_remove_interface,
-        // .sta_state = mt76_sta_state,
-        // .sta_pre_rcu_remove = mt76_sta_pre_rcu_remove,
-        // .set_key = mt76x02_set_key,
-        // .ampdu_action = mt76x02_ampdu_action,
-        // .config = mt76x2u_config,
-        // .wake_tx_queue = mt76_wake_tx_queue,
-        // .bss_info_changed = mt76x02_bss_info_changed,
-        // .configure_filter = mt76x02_configure_filter,
-        // .conf_tx = mt76x02_conf_tx,
-        // .sw_scan_start = mt76_sw_scan,
-        // .sw_scan_complete = mt76x02_sw_scan_complete,
-        // .sta_rate_tbl_update = mt76x02_sta_rate_tbl_update,
-        // .get_txpower = mt76_get_txpower,
-        // .get_survey = mt76_get_survey,
-        // .set_tim = mt76_set_tim,
-        // .release_buffered_frames = mt76_release_buffered_frames,
-        // .get_antenna = mt76_get_antenna,
-        // .set_sar_specs = mt76x2_set_sar_specs,
-    };
+static int dummy_open(struct net_device *dev)
+{
+    netif_start_queue(dev);
+    pr_info("dummy: opened\n");
     return 0;
 }
 
-static void __exit main_exit(void) {
-    pr_info("main module exiting\n");
+static int dummy_stop(struct net_device *dev)
+{
+    netif_stop_queue(dev);
+    pr_info("dummy: stopped\n");
+    return 0;
 }
 
-module_init(main_init);
-module_exit(main_exit);
+static netdev_tx_t dummy_xmit(struct sk_buff *skb, struct net_device *dev)
+{
+    pr_info("dummy: xmit\n");
+    dev_kfree_skb(skb);
+    return NETDEV_TX_OK;
+}
+
+static const struct net_device_ops dummy_netdev_ops = {
+    .ndo_open = dummy_open,
+    .ndo_stop = dummy_stop,
+    .ndo_start_xmit = dummy_xmit,
+};
+
+static void dummy_setup(struct net_device *dev)
+{
+    ether_setup(dev);
+    dev->netdev_ops = &dummy_netdev_ops;
+    dev->flags |= IFF_NOARP;
+    dev->mtu = 1500;
+    strcpy(dev->name, "dummy%d");
+}
+
+static int __init dummy_init(void)
+{
+    int err;
+    dummy_dev = alloc_netdev(0, "dummy%d", NET_NAME_UNKNOWN, dummy_setup);
+    if (!dummy_dev)
+        return -ENOMEM;
+    err = register_netdev(dummy_dev);
+    if (err) {
+        free_netdev(dummy_dev);
+        return err;
+    }
+    pr_info("dummy net device registered\n");
+    return 0;
+}
+
+static void __exit dummy_exit(void)
+{
+    unregister_netdev(dummy_dev);
+    free_netdev(dummy_dev);
+    pr_info("dummy net device unregistered\n");
+}
+
+module_init(dummy_init);
+module_exit(dummy_exit);
+MODULE_LICENSE("GPL");
